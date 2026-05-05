@@ -367,12 +367,12 @@ public abstract class PackListPanel extends Panel {
 									
 									@Override
 									protected String getConfirmMessage() {
-										return _T("Type <code>yes</code> below to delete all queried packages");
+										return _T("Type <code>delete ALL packages</code> below to delete all queried packages");
 									}
 									
 									@Override
 									protected String getConfirmInput() {
-										return "yes";
+										return "delete ALL packages";
 									}
 									
 								};
@@ -514,6 +514,11 @@ public abstract class PackListPanel extends Panel {
 				querySubmitted = StringUtils.trimToEmpty(queryStringModel.getObject())
 						.equals(StringUtils.trimToEmpty(inputContent));
 				target.add(saveQueryLink);
+			}
+			
+			@Override
+			protected boolean isSelectOnFocus() {
+				return true;
 			}
 			
 		});

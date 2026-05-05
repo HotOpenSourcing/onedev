@@ -35,7 +35,6 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.jspecify.annotations.Nullable;
 import javax.inject.Singleton;
 
 import org.apache.commons.io.IOUtils;
@@ -44,6 +43,7 @@ import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.common.digest.BuiltinDigests;
 import org.dom4j.Element;
 import org.dom4j.Node;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +56,6 @@ import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.buildspecmodel.inputspec.InputSpec;
-import io.onedev.server.service.SettingService;
 import io.onedev.server.markdown.MarkdownService;
 import io.onedev.server.markdown.MentionParser;
 import io.onedev.server.model.Issue;
@@ -66,10 +65,11 @@ import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestComment;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.TimeGroups;
+import io.onedev.server.service.SettingService;
 import io.onedev.server.ssh.SshKeyUtils;
 import io.onedev.server.util.CryptoUtils;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.DirectoryVersionUtils;
+import io.onedev.server.util.SiteSyncUtils;
 import io.onedev.server.util.Pair;
 import io.onedev.server.util.ParsedEmailAddress;
 import io.onedev.server.util.patternset.PatternSet;
@@ -7615,7 +7615,7 @@ public class DataMigrator {
 							var currentPath = targetPackBlobFile.getParentFile().toPath();
 							while (currentPath.startsWith(targetProjectPath)) {
 								var currentDir = currentPath.toFile();
-								DirectoryVersionUtils.increaseVersion(currentDir);
+								SiteSyncUtils.increaseVersion(currentDir);
 								currentPath = currentPath.getParent();
 							}
 					
@@ -8530,6 +8530,145 @@ public class DataMigrator {
 					for (Element webHookElement : webHooksElement.elements()) {
 						webHookElement.addElement("headers");
 					}
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+
+	private void migrate222(File dataDir, Stack<Integer> versions) {
+		String template;
+		try (InputStream is = getClass().getResourceAsStream("migrate173_default_notification.tpl")) {
+			Preconditions.checkNotNull(is);
+			template = IOUtils.toString(is, UTF_8);
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+
+		for (File file : dataDir.listFiles()) {
+			if (file.getName().startsWith("Projects.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element projectElement : dom.getRootElement().elements()) {
+					projectElement.addElement("workspaceSetting");
+					projectElement.addElement("workspaceSpecs");
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("Users.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element userElement : dom.getRootElement().elements()) {
+					userElement.addElement("workspaceQueries");
+					userElement.addElement("workspaceQuerySubscriptions");
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("Roles.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element roleElement : dom.getRootElement().elements()) {
+					roleElement.addElement("manageWorkspaces").setText("false");
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("Settings.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element : dom.getRootElement().elements()) {
+					Element keyElement = element.element("key");
+					if (keyElement == null)
+						continue;
+					String settingKey = keyElement.getTextTrim();
+					if (settingKey.equals("EMAIL_TEMPLATES")) {
+						Element valueElement = element.element("value");
+						if (valueElement != null) {
+							valueElement.addElement("workspaceNotification").setText(template);
+						}
+					} else if (settingKey.equals("GROOVY_SCRIPTS")) {
+						Element valueElement = element.element("value");
+						if (valueElement != null) {
+							for (Element groovyScriptElement : valueElement.elements()) {
+								Element authorizationElement = groovyScriptElement.element("authorization");
+								if (authorizationElement != null)
+									authorizationElement.setName("jobAuthorization");
+								groovyScriptElement.addElement("canBeUsedByWorkspaceSpecs").setText("true");
+							}
+						}
+					}
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("Builds.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element buildElement : dom.getRootElement().elements()) {
+					Element workspacePathElement = buildElement.element("workspacePath");
+					if (workspacePathElement != null)
+						workspacePathElement.setName("workDirPath");
+					Element tokenElement = buildElement.element("jobToken");
+					if (tokenElement != null)
+						tokenElement.setName("token");
+				}
+				dom.writeToFile(file, false);
+			} else if (file.getName().startsWith("RunCaches.xml")) {
+				FileUtils.deleteFile(file);
+			}
+		}
+	}
+
+	private void migrate223(File dataDir, Stack<Integer> versions) {
+		for (File file : dataDir.listFiles()) {
+			if (file.getName().startsWith("Settings.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element element : dom.getRootElement().elements()) {
+					String key = element.elementTextTrim("key");
+					if (key.equals("JOB_EXECUTORS")) {
+						Element valueElement = element.element("value");
+						if (valueElement != null) {
+							for (Element executorElement : valueElement.elements()) {
+								if (executorElement.getName().contains("ServerShellExecutor")
+										|| executorElement.getName().contains("RemoteShellExecutor")) {
+									Element jobMatchElement = executorElement.element("jobMatch");
+									if (jobMatchElement == null)
+										executorElement.addElement("jobMatch").setText("\"Project\" is \"**\"");
+								}
+							}
+						}
+					} else if (key.equals("WORKSPACE_PROVISIONERS")) {
+						Element valueElement = element.element("value");
+						if (valueElement != null) {
+							for (Element provisionerElement : valueElement.elements()) {
+								if (provisionerElement.getName().contains("ShellProvisioner")) {
+									Element applicableProjectsElement = provisionerElement.element("applicableProjects");
+									if (applicableProjectsElement == null)
+										provisionerElement.addElement("applicableProjects").setText("**");
+								}
+							}
+						}
+					}
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+
+	private void migrate224(File dataDir, Stack<Integer> versions) {
+		for (File file : dataDir.listFiles()) {
+			if (file.getName().startsWith("Workspaces.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element workspaceElement : dom.getRootElement().elements()) {
+					Element statusElement = workspaceElement.element("status");
+					if (statusElement.getTextTrim().equals("ERROR"))
+						statusElement.setText("INACTIVE");
+					Element errorDateElement = workspaceElement.element("errorDate");
+					if (errorDateElement != null)
+						errorDateElement.setName("inactiveDate");
+				}
+				dom.writeToFile(file, false);
+			}
+		}
+	}
+	
+	private void migrate225(File dataDir, Stack<Integer> versions) {
+		for (File file : dataDir.listFiles()) {
+			if (file.getName().startsWith("Projects.xml")) {
+				VersionedXmlDoc dom = VersionedXmlDoc.fromFile(file);
+				for (Element projectElement : dom.getRootElement().elements()) {
+					Element issueSettingElement = projectElement.element("issueSetting");
+					if (issueSettingElement != null)
+						issueSettingElement.addElement("transitionSpecs");
 				}
 				dom.writeToFile(file, false);
 			}

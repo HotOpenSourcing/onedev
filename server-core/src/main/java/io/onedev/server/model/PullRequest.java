@@ -81,6 +81,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import io.onedev.server.OneDev;
 import io.onedev.server.ai.PullRequestHelper;
 import io.onedev.server.ai.TaskTool;
@@ -88,7 +89,7 @@ import io.onedev.server.ai.ToolExecutionResult;
 import io.onedev.server.attachment.AttachmentStorageSupport;
 import io.onedev.server.entityreference.EntityReference;
 import io.onedev.server.entityreference.PullRequestReference;
-import io.onedev.server.exception.PullRequestReviewRejectedException;
+import io.onedev.server.exception.NotAcceptableException;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.service.CommitMessageError;
 import io.onedev.server.git.service.GitService;
@@ -116,6 +117,7 @@ import io.onedev.server.web.asset.emoji.Emojis;
 import io.onedev.server.web.util.PullRequestAware;
 import io.onedev.server.web.util.TextUtils;
 import io.onedev.server.web.util.WicketUtils;
+import io.onedev.server.workspace.WorkspaceService;
 import io.onedev.server.xodus.VisitInfoService;
 
 @Entity
@@ -145,6 +147,10 @@ public class PullRequest extends ProjectBelonging
 	public static final int MAX_TITLE_LEN = 255;
 	
 	public static final int MAX_DESCRIPTION_LEN = 100000;
+
+	public static final String APPROVE_TOOL_NAME = "approvePullRequest";
+
+	public static final String REQUEST_FOR_CHANGES_TOOL_NAME = "requestChangesForPullRequest";
 	
 	public static final String NAME_STATUS = "Status";
 	
@@ -1050,6 +1056,10 @@ public class PullRequest extends ProjectBelonging
 	private GitService getGitService() {
 		return OneDev.getInstance(GitService.class);
 	}
+
+	private WorkspaceService getWorkspaceService() {
+		return OneDev.getInstance(WorkspaceService.class);
+	}
 	
 	public static String getChangeObservable(Long requestId) {
 		return PullRequest.class.getName() + ":" + requestId;
@@ -1243,8 +1253,7 @@ public class PullRequest extends ProjectBelonging
 			return _T("Source project no longer exists");
 		if (getSource().getObjectName(false) == null)
 			return _T("Source branch no longer exists");
-		PullRequestService manager = OneDev.getInstance(PullRequestService.class);
-		PullRequest request = manager.findEffective(getTarget(), getSource());
+		PullRequest request = getPullRequestService().findEffective(getTarget(), getSource());
 		if (request != null) {
 			if (request.isOpen())
 				return _T("Another pull request already open for this change");
@@ -1270,6 +1279,8 @@ public class PullRequest extends ProjectBelonging
 			return _T("Source branch no longer exists");
 		if (getSource().isDefault())
 			return _T("Source branch is default branch");
+		if (getWorkspaceService().count(getSourceProject(), getSourceBranch()) > 0)
+			return _T("There are workspaces on source branch");
 		MergePreview preview = checkMergePreview();
 		if (preview == null)
 			return _T("Merge preview not calculated yet");
@@ -1475,7 +1486,7 @@ public class PullRequest extends ProjectBelonging
 	public String generateTitleFromCommits() {
 		var commits = getLatestUpdate().getCommits();
 		if (commits.size() == 1) {
-			return cleanTitle(commits.get(0).getShortMessage());
+			return getTitlePrefix(getSourceBranchSemantic()) + cleanTitle(commits.get(0).getShortMessage());
 		} else {
 			return null;
 		}
@@ -1549,8 +1560,13 @@ public class PullRequest extends ProjectBelonging
 				@Override
 				public ToolSpecification getSpecification() {
 					return ToolSpecification.builder()
-						.name("approvePullRequest")
-						.description("Approve current OneDev pull request")
+						.name(APPROVE_TOOL_NAME)
+						.description("Record an approval for current OneDev pull request. " 
+							+ "Call this exactly once after you have finished reviewing and decided to approve.")
+						.parameters(JsonObjectSchema.builder()
+							.addStringProperty("reason").description("Reason explaining why you are approving this pull request. Make sure to quote relevant code snippets if applicable")
+							.required("reason")
+							.build())
 						.build();
 				}
 
@@ -1561,10 +1577,14 @@ public class PullRequest extends ProjectBelonging
 					if (!SecurityUtils.canReadCode(subject, request.getProject()) || user == null)
 						throw new UnauthorizedException();
 
+					if (arguments.get("reason") == null)
+						return new ToolExecutionResult(convertToJson(Map.of("successful", false, "failReason", "Argument 'reason' is required")), false);
+					var reason = arguments.get("reason").asText();
+
 					try {
-						getPullRequestReviewService().review(user, request, true, null);
+						getPullRequestReviewService().review(user, request, true, reason);
 						return new ToolExecutionResult(convertToJson(Map.of("successful", true)), false);
-					} catch (PullRequestReviewRejectedException e) {
+					} catch (NotAcceptableException e) {
 						var data = Map.of(
 							"successful", false, 
 							"failReason", "You are not a reviewer and is not allowed to approve this pull request. Add your option as comment instead");
@@ -1578,8 +1598,13 @@ public class PullRequest extends ProjectBelonging
 				@Override
 				public ToolSpecification getSpecification() {
 					return ToolSpecification.builder()
-						.name("requestChangesForPullRequest")
-						.description("Request changes for current OneDev pull request")
+						.name(REQUEST_FOR_CHANGES_TOOL_NAME)
+						.description("Record a request for changes for current OneDev pull request. " 
+							+ "Call this exactly once after you have finished reviewing and decided changes are needed.")
+						.parameters(JsonObjectSchema.builder()
+							.addStringProperty("reason").description("Reason explaining why you are requesting changes for this pull request. Make sure to quote relevant code snippets if applicable")
+							.required("reason")
+							.build())
 						.build();
 				}
 
@@ -1590,13 +1615,17 @@ public class PullRequest extends ProjectBelonging
 					if (!SecurityUtils.canReadCode(subject, request.getProject()) || user == null)
 						throw new UnauthorizedException();
 
+					if (arguments.get("reason") == null)
+						return new ToolExecutionResult(convertToJson(Map.of("successful", false, "failReason", "Argument 'reason' is required")), false);
+					var reason = arguments.get("reason").asText();
+
 					try {
-						getPullRequestReviewService().review(user, request, false, null);
+						getPullRequestReviewService().review(user, request, false, reason);
 						return new ToolExecutionResult(convertToJson(Map.of("successful", true)), false);
-					} catch (PullRequestReviewRejectedException e) {
+					} catch (NotAcceptableException e) {
 						var data = Map.of(
 							"successful", false, 
-							"failReason", "You are not a reviewer and is not allowed to request changes for this pull request. Add your option as comment instead");
+							"failReason", e.getMessage());
 						return new ToolExecutionResult(convertToJson(data), false);
 					}
 				}

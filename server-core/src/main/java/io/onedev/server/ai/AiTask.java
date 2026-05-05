@@ -4,6 +4,8 @@ import java.util.Collection;
 
 import org.jspecify.annotations.Nullable;
 
+import io.onedev.server.ai.taskchecker.TaskChecker;
+
 public class AiTask {
 
     private final String systemPrompt;
@@ -12,13 +14,16 @@ public class AiTask {
 
     private final Collection<TaskTool> tools;
 
-    private final ResponseHandler responseHandler;
+    private final TaskChecker taskChecker;
+
+    private final ResponseHandler responseHandler;    
 
     public AiTask(@Nullable String systemPrompt, String userPrompt, Collection<TaskTool> tools, 
-            ResponseHandler responseHandler) {
+            TaskChecker taskChecker, ResponseHandler responseHandler) {
         this.systemPrompt = systemPrompt;
         this.userPrompt = userPrompt;
         this.tools = tools;
+        this.taskChecker = taskChecker;
         this.responseHandler = responseHandler;
     }
 
@@ -32,7 +37,11 @@ public class AiTask {
     }
 
     public Collection<TaskTool> getTools() {
-        return tools;
+        return tools; 
+    }
+
+    public TaskChecker getTaskChecker() {
+        return taskChecker;
     }
 
     public ResponseHandler getResponseHandler() {

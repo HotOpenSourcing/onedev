@@ -243,10 +243,6 @@ public class DefaultAgentService extends BaseEntityService<Agent> implements Age
 		Query<?> query = getSession().createQuery("update Build set agent=null where agent=:agent");
 		query.setParameter("agent", agent);
 		query.executeUpdate();
-
-		query = getSession().createQuery("update DevSession set agent=null where agent=:agent");
-		query.setParameter("agent", agent);
-		query.executeUpdate();
 	}
 	
 	@Sessional
@@ -355,7 +351,7 @@ public class DefaultAgentService extends BaseEntityService<Agent> implements Age
 					Session session = agentSessions.get(agentId);
 					if (session != null)
 						new Message(MessageTypes.RESTART, new byte[0]).sendBy(session);
-				} catch (Exception e) {
+				} catch (Throwable e) {
 					logger.error("Error restarting agent '" + agentName + "'", e);
 				}
 				return null;
@@ -372,7 +368,7 @@ public class DefaultAgentService extends BaseEntityService<Agent> implements Age
 					Session session = agentSessions.get(agentId);
 					if (session != null)
 						session.disconnect();
-				} catch (Exception e) {
+				} catch (Throwable e) {
 					logger.error("Error disconnecting agent with id '" + agentId + "'", e);
 				}
 				return null;
@@ -401,7 +397,7 @@ public class DefaultAgentService extends BaseEntityService<Agent> implements Age
 							new Message(MessageTypes.STOP, new byte[0]).sendBy(prevSession);
 							prevSession.disconnect();
 						}
-					} catch (Exception e) {
+					} catch (Throwable e) {
 						logger.error("Error disconnecting agent '" + agentName + "'", e);						
 					}
 					return null;
@@ -439,7 +435,7 @@ public class DefaultAgentService extends BaseEntityService<Agent> implements Age
 						byte[] attributeBytes = SerializationUtils.serialize((Serializable) attributes);
 						new Message(MessageTypes.UPDATE_ATTRIBUTES, attributeBytes).sendBy(session);
 					}
-				} catch (Exception e) {
+				} catch (Throwable e) {
 					logger.error("Error updating attributes of agent '" + agentName + "'", e);
 				}
 				return null;

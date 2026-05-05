@@ -18,7 +18,7 @@ import static io.onedev.server.model.Build.Status.SUCCESSFUL;
 import static io.onedev.server.model.Project.BUILDS_DIR;
 import static io.onedev.server.model.Project.SHARE_TEST_DIR;
 import static io.onedev.server.search.entity.EntitySort.Direction.ASCENDING;
-import static io.onedev.server.util.DirectoryVersionUtils.isVersionFile;
+import static io.onedev.server.util.SiteSyncUtils.isVersionFile;
 import static java.lang.Long.valueOf;
 import static java.util.Arrays.asList;
 
@@ -79,9 +79,11 @@ import io.onedev.server.cluster.ClusterService;
 import io.onedev.server.event.Listen;
 import io.onedev.server.event.entity.EntityPersisted;
 import io.onedev.server.event.entity.EntityRemoved;
+import io.onedev.server.event.project.build.BuildFinished;
 import io.onedev.server.event.system.SystemStarting;
 import io.onedev.server.event.system.SystemStopping;
 import io.onedev.server.git.service.GitService;
+import io.onedev.server.logging.LogService;
 import io.onedev.server.model.Agent;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Build.Status;
@@ -149,6 +151,9 @@ public class DefaultBuildService extends BaseEntityService<Build> implements Bui
 	
 	@Inject
 	private BuildLabelService labelService;
+
+	@Inject
+	private LogService logService;
 	
 	@Inject
 	private ClusterService clusterService;
@@ -249,18 +254,20 @@ public class DefaultBuildService extends BaseEntityService<Build> implements Bui
 			Long buildId = build.getProject().getId();
 			Long buildNumber = build.getNumber();
 
-			String activeServer = projectService.getActiveServer(projectId, false);
+			String projectServer = projectService.getActiveServer(projectId, false);
 			
 			transactionService.runAfterCommit(() -> {
 				cache.remove(buildId);
-				if (activeServer != null) {
-					clusterService.submitToServer(activeServer, () -> {
+				if (projectServer != null) {
+					clusterService.submitToServer(projectServer, () -> {
 						try {
 							var buildDir = getBuildDir(projectId, buildNumber);
 							FileUtils.deleteDir(buildDir);
 							projectService.directoryModified(projectId, buildDir.getParentFile());
-						} catch (Exception e) {
-							logger.error("Error deleting storage directory of build id '" + buildId + "'", e);
+						} catch (Throwable e) {
+							var message = "Error deleting build storage directory (project id: %d, build number: %d)"
+									.formatted(projectId, buildNumber);
+							logger.error(message, e);
 						}
 						return null;
 					});
@@ -268,6 +275,11 @@ public class DefaultBuildService extends BaseEntityService<Build> implements Bui
 				}
 			});
 		}
+	}
+
+	@Listen
+	public void on(BuildFinished event) {
+		logService.flush(event.getBuild().getLoggingSupport());
 	}
 
 	@Sessional

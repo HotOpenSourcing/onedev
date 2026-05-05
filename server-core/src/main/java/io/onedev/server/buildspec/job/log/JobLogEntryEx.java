@@ -17,7 +17,7 @@ import org.jspecify.annotations.Nullable;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 
-import io.onedev.server.job.log.StyleBuilder;
+import io.onedev.server.logging.StyleBuilder;
 import io.onedev.server.web.asset.emoji.Emojis;
 
 public class JobLogEntryEx implements Serializable {
@@ -211,8 +211,6 @@ public class JobLogEntryEx implements Serializable {
 				}
 				return null;
 			}
-
-			;
 		};
 		
 		StringBuilder actionDataBuilder = null;
@@ -233,6 +231,7 @@ public class JobLogEntryEx implements Serializable {
                     currentTextBuilder.setLength(0);
                 }
             	cursor.set(0);
+				currentTextBuilder.append(currentChar);
             } else if (actionDataBuilder != null) {
                 if (Character.isLetter(currentChar)) {
                     if (currentTextBuilder.length() != 0) {

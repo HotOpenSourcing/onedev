@@ -33,6 +33,7 @@ import io.onedev.server.web.page.admin.emailtemplates.ServiceDeskIssueOpenFailed
 import io.onedev.server.web.page.admin.emailtemplates.ServiceDeskIssueOpenedTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.StopwatchOverdueTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.UserInvitationTemplatePage;
+import io.onedev.server.web.page.admin.emailtemplates.WorkspaceNotificationTemplatePage;
 import io.onedev.server.web.page.admin.gpgsigningkey.GpgSigningKeyPage;
 import io.onedev.server.web.page.admin.gpgtrustedkeys.GpgTrustedKeysPage;
 import io.onedev.server.web.page.admin.groovyscript.GroovyScriptListPage;
@@ -70,6 +71,7 @@ import io.onedev.server.web.page.admin.usermanagement.InvitationListPage;
 import io.onedev.server.web.page.admin.usermanagement.NewInvitationPage;
 import io.onedev.server.web.page.admin.usermanagement.NewUserPage;
 import io.onedev.server.web.page.admin.usermanagement.UserListPage;
+import io.onedev.server.web.page.admin.workspaceprovisioner.WorkspaceProvisionersPage;
 import io.onedev.server.web.page.builds.BuildListPage;
 import io.onedev.server.web.page.error.PageNotFoundErrorPage;
 import io.onedev.server.web.page.help.IncompatibilitiesPage;
@@ -91,6 +93,7 @@ import io.onedev.server.web.page.my.querywatch.MyQueryWatchesPage;
 import io.onedev.server.web.page.my.sshkeys.MySshKeysPage;
 import io.onedev.server.web.page.my.ssoaccounts.MySsoAccountsPage;
 import io.onedev.server.web.page.my.twofactorauthentication.MyTwoFactorAuthenticationPage;
+import io.onedev.server.web.page.my.workspacedata.MyWorkspaceDataPage;
 import io.onedev.server.web.page.packs.PackListPage;
 import io.onedev.server.web.page.project.NewProjectPage;
 import io.onedev.server.web.page.project.NoProjectStoragePage;
@@ -140,22 +143,29 @@ import io.onedev.server.web.page.project.pullrequests.detail.codecomments.PullRe
 import io.onedev.server.web.page.project.setting.ai.ProjectAiSettingPage;
 import io.onedev.server.web.page.project.setting.avatar.AvatarEditPage;
 import io.onedev.server.web.page.project.setting.build.BuildPreservationsPage;
-import io.onedev.server.web.page.project.setting.build.CacheManagementPage;
 import io.onedev.server.web.page.project.setting.build.DefaultFixedIssueFiltersPage;
 import io.onedev.server.web.page.project.setting.build.JobPropertiesPage;
 import io.onedev.server.web.page.project.setting.build.JobSecretsPage;
+import io.onedev.server.web.page.project.setting.cache.CacheManagementPage;
 import io.onedev.server.web.page.project.setting.code.analysis.CodeAnalysisSettingPage;
 import io.onedev.server.web.page.project.setting.code.branchprotection.BranchProtectionsPage;
 import io.onedev.server.web.page.project.setting.code.git.GitPackConfigPage;
 import io.onedev.server.web.page.project.setting.code.pullrequest.PullRequestSettingPage;
 import io.onedev.server.web.page.project.setting.code.tagprotection.TagProtectionsPage;
 import io.onedev.server.web.page.project.setting.general.GeneralProjectSettingPage;
+import io.onedev.server.web.page.project.setting.issuesetting.ProjectStateTransitionListPage;
 import io.onedev.server.web.page.project.setting.pluginsettings.ContributedProjectSettingPage;
 import io.onedev.server.web.page.project.setting.servicedesk.ServiceDeskSettingPage;
 import io.onedev.server.web.page.project.setting.webhook.WebHooksPage;
+import io.onedev.server.web.page.project.setting.workspacespec.WorkspaceSpecsPage;
 import io.onedev.server.web.page.project.stats.code.CodeContribsPage;
 import io.onedev.server.web.page.project.stats.code.SourceLinesPage;
 import io.onedev.server.web.page.project.tags.ProjectTagsPage;
+import io.onedev.server.web.page.project.workspaces.ProjectWorkspacesPage;
+import io.onedev.server.web.page.project.workspaces.detail.changes.WorkspaceChangesPage;
+import io.onedev.server.web.page.project.workspaces.detail.dashboard.WorkspaceDashboardPage;
+import io.onedev.server.web.page.project.workspaces.detail.log.WorkspaceLogPage;
+import io.onedev.server.web.page.project.workspaces.detail.terminal.WorkspaceTerminalPage;
 import io.onedev.server.web.page.pullrequests.PullRequestListPage;
 import io.onedev.server.web.page.security.CreateUserFromInvitationPage;
 import io.onedev.server.web.page.security.EmailAddressVerificationPage;
@@ -182,6 +192,8 @@ import io.onedev.server.web.page.user.querywatch.UserQueryWatchesPage;
 import io.onedev.server.web.page.user.sshkeys.UserSshKeysPage;
 import io.onedev.server.web.page.user.ssoaccounts.UserSsoAccountsPage;
 import io.onedev.server.web.page.user.twofactorauthentication.UserTwoFactorAuthenticationPage;
+import io.onedev.server.web.page.user.workspacedata.UserWorkspaceDataPage;
+import io.onedev.server.web.page.workspaces.WorkspaceListPage;
 import io.onedev.server.web.resource.AgentLibResourceReference;
 import io.onedev.server.web.resource.AgentLogResourceReference;
 import io.onedev.server.web.resource.AgentResourceReference;
@@ -212,6 +224,7 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new BasePageMapper("~pulls", PullRequestListPage.class));
 		add(new BasePageMapper("~builds", BuildListPage.class));
 		add(new BasePageMapper("~packages", PackListPage.class));
+		add(new BasePageMapper("~workspaces", WorkspaceListPage.class));
 		addAdministrationPages();
 		addUserPages();
 		addMyPages();
@@ -244,6 +257,7 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new BasePageMapper("~my/two-factor-authentication", MyTwoFactorAuthenticationPage.class));
 		add(new BasePageMapper("~my/sso-accounts", MySsoAccountsPage.class));
 		add(new BasePageMapper("~my/query-watches/#{tab}", MyQueryWatchesPage.class));
+		add(new BasePageMapper("~my/workspace-data", MyWorkspaceDataPage.class));
 	}
 
 	private void addResources() {
@@ -305,7 +319,8 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new BasePageMapper("~users/${user}/access-tokens", UserAccessTokensPage.class));
 		add(new BasePageMapper("~users/${user}/two-factor-authentication", UserTwoFactorAuthenticationPage.class));
 		add(new BasePageMapper("~users/${user}/sso-accounts", UserSsoAccountsPage.class));
-		add(new BasePageMapper("~users/${user}/query-watches/#{tab}", UserQueryWatchesPage.class));		
+		add(new BasePageMapper("~users/${user}/query-watches/#{tab}", UserQueryWatchesPage.class));
+		add(new BasePageMapper("~users/${user}/workspace-data", UserWorkspaceDataPage.class));
 	}
 
 	private void addAdministrationPages() {
@@ -337,6 +352,8 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 				BuildNotificationTemplatePage.class));
 		add(new BasePageMapper("~administration/settings/email-templates/pack-notification",
 				PackNotificationTemplatePage.class));
+		add(new BasePageMapper("~administration/settings/email-templates/workspace-notification",
+				WorkspaceNotificationTemplatePage.class));
 		add(new BasePageMapper("~administration/settings/email-templates/commit-notification",
 				CommitNotificationTemplatePage.class));
 		add(new BasePageMapper("~administration/settings/email-templates/issue-notification-unsubscribed",
@@ -377,6 +394,7 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new BasePageMapper("~administration/agents/${agent}/builds", AgentBuildsPage.class));
 		add(new BasePageMapper("~administration/agents/${agent}/log", AgentLogPage.class));
 		add(new BasePageMapper("~administration/settings/job-executors", JobExecutorsPage.class));
+		add(new BasePageMapper("~administration/settings/workspace-provisioners", WorkspaceProvisionersPage.class));
 		add(new BasePageMapper("~administration/settings/groovy-scripts", GroovyScriptListPage.class));
 
 		add(new BasePageMapper("~administration/settings/issue-fields", IssueFieldListPage.class));
@@ -457,6 +475,12 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 
 		add(new ProjectPageMapper("${project}/~packages", ProjectPacksPage.class));
 		add(new ProjectPageMapper("${project}/~packages/${pack}", PackDetailPage.class));
+
+		add(new ProjectPageMapper("${project}/~workspaces", ProjectWorkspacesPage.class));
+		add(new ProjectPageMapper("${project}/~workspaces/${workspace}", WorkspaceDashboardPage.class));
+		add(new ProjectPageMapper("${project}/~workspaces/${workspace}/terminals/${shell}", WorkspaceTerminalPage.class));
+		add(new ProjectPageMapper("${project}/~workspaces/${workspace}/changes", WorkspaceChangesPage.class));
+		add(new ProjectPageMapper("${project}/~workspaces/${workspace}/log", WorkspaceLogPage.class));
 		
 		add(new ProjectPageMapper("${project}/~children", ProjectChildrenPage.class));
 		
@@ -474,9 +498,11 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new ProjectPageMapper("${project}/~settings/build/build-preserve-rules", BuildPreservationsPage.class));
 		add(new ProjectPageMapper("${project}/~settings/build/default-fixed-issues-filter", DefaultFixedIssueFiltersPage.class));
 		add(new ProjectPageMapper("${project}/~settings/build/cache-management", CacheManagementPage.class));
+		add(new ProjectPageMapper("${project}/~settings/issue/state-transitions", ProjectStateTransitionListPage.class));
 		add(new ProjectPageMapper("${project}/~settings/service-desk", ServiceDeskSettingPage.class));
 		add(new ProjectPageMapper("${project}/~settings/web-hooks", WebHooksPage.class));
 		add(new ProjectPageMapper("${project}/~settings/ai", ProjectAiSettingPage.class));
+		add(new ProjectPageMapper("${project}/~settings/workspace-spec", WorkspaceSpecsPage.class));
 		add(new ProjectPageMapper("${project}/~settings/${" + ContributedProjectSettingPage.PARAM_SETTING + "}", 
 				ContributedProjectSettingPage.class));
 		add(new ProjectPageMapper("${project}/~no-storage", NoProjectStoragePage.class));

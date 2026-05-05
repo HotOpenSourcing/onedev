@@ -936,8 +936,7 @@ public class DefaultIssueService extends BaseEntityService<Issue> implements Iss
 	public void on(EntityRemoved event) {
 		if (event.getEntity() instanceof Issue) {
 			var cacheKey = getCacheKey((Issue) event.getEntity());
-			transactionService.runAfterCommit(() -> idCache.remove(cacheKey));
-			
+			transactionService.runAfterCommit(() -> idCache.remove(cacheKey));			
 		} else if (event.getEntity() instanceof Project) {
 			Project project = (Project) event.getEntity();
 	    	if (project.getForkRoot().equals(project))
@@ -1335,7 +1334,7 @@ public class DefaultIssueService extends BaseEntityService<Issue> implements Iss
 			var systemMessage = new SystemMessage("""
 				Convert the given title into a short slug for a git branch name. 
 				Rules: use only lowercase letters (for non-english title, translate to english first), numbers and hyphens; no spaces or other special characters;
-				replace spaces with single hyphens; output only the slug, nothing else; maximum 50 characters.""");
+				replace spaces with single hyphens; output only the slug, nothing else; maximum 30 characters.""");
 			for (int attempt = 0; attempt < 3; attempt++) {
 				try {
 					var userMessage = new UserMessage(issue.getTitle());

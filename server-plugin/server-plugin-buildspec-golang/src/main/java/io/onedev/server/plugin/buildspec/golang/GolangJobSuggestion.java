@@ -16,7 +16,6 @@ import io.onedev.server.buildspec.job.trigger.BranchUpdateTrigger;
 import io.onedev.server.buildspec.job.trigger.PullRequestUpdateTrigger;
 import io.onedev.server.buildspec.step.CheckoutStep;
 import io.onedev.server.buildspec.step.CommandStep;
-import io.onedev.server.buildspec.step.GenerateChecksumStep;
 import io.onedev.server.buildspec.step.SetupCacheStep;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.model.Build;
@@ -26,19 +25,11 @@ import io.onedev.server.plugin.report.checkstyle.PublishCheckstyleReportStep;
 import io.onedev.server.plugin.report.cobertura.PublishCoberturaReportStep;
 import io.onedev.server.plugin.report.coverage.PublishCoverageReportStep;
 import io.onedev.server.plugin.report.junit.PublishJUnitReportStep;
-import io.onedev.server.util.interpolative.VariableInterpolator;
+import io.onedev.server.util.interpolative.JobVariableInterpolator;
 
 public class GolangJobSuggestion implements JobSuggestion {
 
 	public static final String DETERMINE_GO_VERSION = "golang:determine-go-version";
-	
-	private GenerateChecksumStep newChecksumGenerateStep(String name, String files) {
-		var generateChecksum = new GenerateChecksumStep();
-		generateChecksum.setName(name);
-		generateChecksum.setFiles(files);
-		generateChecksum.setTargetFile("checksum");
-		return generateChecksum;
-	}
 	
 	private Job newJob() {
 		Job job = new Job();
@@ -90,18 +81,21 @@ public class GolangJobSuggestion implements JobSuggestion {
 		List<Job> jobs = new ArrayList<>();
 		if (project.getBlob(new BlobIdent(commitId.name(), "go.mod", FileMode.TYPE_FILE), false) != null) {
 			Job job = newJob();
-			job.getSteps().add(newChecksumGenerateStep("generate dependency checksum", "**/go.mod"));
 			var setupCache = new SetupCacheStep();
 			setupCache.setName("set up dependency cache");
-			setupCache.setKey("go_cache_@file:checksum@");
-			setupCache.setPaths(Lists.newArrayList("/root/.cache/go_build", "/root/.cache/golangci-lint", "/go/pkg/mod"));
-			setupCache.getLoadKeys().add("go_cache");
+			setupCache.setKey("go_cache");
+
+			setupCache.setChecksumFiles("**/go.mod");
+			setupCache.setPaths(Lists.newArrayList(
+				"/root/.cache/go_build", 
+				"/root/.cache/golangci-lint", 
+				"/go/pkg/mod"));
 			job.getSteps().add(setupCache);
 
 			CommandStep buildAndTest = new CommandStep();
 			buildAndTest.setName("build and test");
 			
-			buildAndTest.setImage("golang:@" + VariableInterpolator.PREFIX_SCRIPT + GroovyScript.BUILTIN_PREFIX + DETERMINE_GO_VERSION + "@");
+			buildAndTest.setImage("golang:@" + JobVariableInterpolator.PREFIX_SCRIPT + GroovyScript.BUILTIN_PREFIX + DETERMINE_GO_VERSION + "@");
 			buildAndTest.getInterpreter().setCommands("" +
 					"set -e\n" +
 					"# Use double at to avoid being interpreted as OneDev variable substitution\n" +

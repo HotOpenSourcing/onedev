@@ -698,12 +698,12 @@ public abstract class BuildListPanel extends Panel {
 									
 									@Override
 									protected String getConfirmMessage() {
-										return _T("Type <code>yes</code> below to delete all queried builds");
+										return _T("Type <code>delete ALL builds</code> below to delete all queried builds");
 									}
 									
 									@Override
 									protected String getConfirmInput() {
-										return "yes";
+										return "delete ALL builds";
 									}
 									
 								};
@@ -942,6 +942,11 @@ public abstract class BuildListPanel extends Panel {
 				target.add(saveQueryLink);
 			}
 			
+			@Override
+			protected boolean isSelectOnFocus() {
+				return true;
+			}
+			
 		});
 		
 		queryInput.add(new AjaxFormComponentUpdatingBehavior("clear") {
@@ -1126,11 +1131,11 @@ public abstract class BuildListPanel extends Panel {
 					}
 
 				}));
-				link.add(new Label("summary", new AbstractReadOnlyModel<String>() {
+				link.add(new Label("caption", new AbstractReadOnlyModel<String>() {
 
 					@Override
 					public String getObject() {
-						return rowModel.getObject().getSummary(getProject());
+						return rowModel.getObject().getCaption(getProject());
 					}
 
 				}));

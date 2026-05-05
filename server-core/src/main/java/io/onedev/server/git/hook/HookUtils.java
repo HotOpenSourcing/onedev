@@ -18,10 +18,10 @@ import java.util.Map;
 
 public class HookUtils {
 
-	public static final String HOOK_TOKEN = CryptoUtils.generateSecret(); 
+	public static final String RECEIVE_HOOK_TOKEN = CryptoUtils.generateSecret(); 
 	
 	private static final String gitReceiveHook;
-	
+
 	static {
         try (InputStream is = HookUtils.class.getClassLoader().getResourceAsStream("git-receive-hook")) {
         	Preconditions.checkNotNull(is);
@@ -30,25 +30,38 @@ public class HookUtils {
             throw new RuntimeException(e);
         }
 	}
-	
-	public static Map<String, String> getHookEnvs(Long projectId, String principal) {
+
+	public static Map<String, String> getCommonHookEnvs(String host) {
 		ServerConfig serverConfig = OneDev.getInstance(ServerConfig.class);
 		SettingService settingService = OneDev.getInstance(SettingService.class);
-		String hookUrl = "http://localhost:" + serverConfig.getHttpPort();
+		String hookUrl = "http://" + host + "/" + serverConfig.getHttpPort();
 		String curl = settingService.getSystemSetting().getCurlLocation().getExecutable();
 		
 		Map<String, String> envs = new HashMap<>();
 		
         envs.put("ONEDEV_CURL", curl);
 		envs.put("ONEDEV_URL", hookUrl);
-		envs.put("ONEDEV_HOOK_TOKEN", HOOK_TOKEN);
-		envs.put("ONEDEV_USER_ID", principal);
-		envs.put("ONEDEV_REPOSITORY_ID", projectId.toString());
 				
 		return envs;
 	}
+
+	public static Map<String, String> getReceiveHookEnvs(Long projectId, String principal) {		
+		var envs = new HashMap<String, String>();
+		ServerConfig serverConfig = OneDev.getInstance(ServerConfig.class);
+		SettingService settingService = OneDev.getInstance(SettingService.class);
+		String hookUrl = "http://localhost:" + serverConfig.getHttpPort();
+		String curl = settingService.getSystemSetting().getCurlLocation().getExecutable();
+
+		envs.put("ONEDEV_CURL", curl);
+		envs.put("ONEDEV_URL", hookUrl);
+
+		envs.put("ONEDEV_HOOK_TOKEN", RECEIVE_HOOK_TOKEN);
+		envs.put("ONEDEV_USER_ID", principal);
+		envs.put("ONEDEV_REPOSITORY_ID", projectId.toString());				
+		return envs;
+	}
 	
-	public static boolean isHookValid(File gitDir, String hookName) {
+	public static boolean isReceiveHookValid(File gitDir, String hookName) {
         File hookFile = new File(gitDir, "hooks/" + hookName);
         if (!hookFile.exists()) 
         	return false;
@@ -66,10 +79,9 @@ public class HookUtils {
         
         return true;
 	}
-	
-	public static void checkHooks(File gitDir) {
-		if (!isHookValid(gitDir, "pre-receive") 
-				|| !isHookValid(gitDir, "post-receive")) {
+
+	public static void checkReceiveHooks(File gitDir) {
+		if (!isReceiveHookValid(gitDir, "pre-receive") || !isReceiveHookValid(gitDir, "post-receive")) {
             File hooksDir = new File(gitDir, "hooks");
 
             File gitPreReceiveHookFile = new File(hooksDir, "pre-receive");

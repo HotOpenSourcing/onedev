@@ -48,7 +48,6 @@ import io.onedev.server.buildspec.param.spec.ParamSpec;
 import io.onedev.server.buildspec.step.Step;
 import io.onedev.server.event.project.ProjectEvent;
 import io.onedev.server.git.GitUtils;
-import io.onedev.server.job.match.JobMatch;
 import io.onedev.server.job.match.JobMatchContext;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
@@ -133,7 +132,7 @@ public class Job implements NamedElement, Validatable {
 		if (buildSpec != null) {
 			List<String> candidates = new ArrayList<>(buildSpec.getJobMap().keySet());
 			buildSpec.getJobs().forEach(it->candidates.remove(it.getName()));
-			return BuildSpec.suggestOverrides(candidates, status);
+			return SuggestionUtils.suggestOverrides(candidates, status);
 		}
 		return new ArrayList<>();
 	}
@@ -175,21 +174,15 @@ public class Job implements NamedElement, Validatable {
 				branch = "main";
 			JobMatchContext context = new JobMatchContext(page.getProject(), branch, null, jobName);
 			for (JobExecutor executor: OneDev.getInstance(SettingService.class).getJobExecutors()) {
-				if (executor.isEnabled()) {
-					if (executor.getJobMatch() == null) {
-						applicableJobExecutors.add(executor.getName());
-					} else {
-						if (JobMatch.parse(executor.getJobMatch(), true, true).matches(context))
-							applicableJobExecutors.add(executor.getName());
-					}
-				}
+				if (executor.isEnabled() && executor.isApplicable(context))
+					applicableJobExecutors.add(executor.getName());
 			}
 		}
 		
 		return SuggestionUtils.suggest(applicableJobExecutors, matchWith);
 	}
 	
-	@Editable(order=200, description="Steps will be executed serially on same node, sharing the same <a href='https://docs.onedev.io/concepts#job-workspace'>job workspace</a>")
+	@Editable(order=200, description="Steps will be executed serially on same node, sharing the same <a href='https://docs.onedev.io/concepts#job-workdir'>job working directory</a>")
 	@Valid
 	public List<Step> getSteps() {
 		return steps;

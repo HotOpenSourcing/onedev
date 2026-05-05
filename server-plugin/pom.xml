@@ -6,7 +6,7 @@
 	<parent>
 		<groupId>io.onedev</groupId>
 		<artifactId>server</artifactId>
-		<version>14.1.9</version>
+		<version>15.1.0</version>
 	</parent>
 	<dependencies>
 		<dependency>
@@ -43,6 +43,8 @@
 		<module>server-plugin-executor-remotedocker</module>
 		<module>server-plugin-executor-servershell</module>
 		<module>server-plugin-executor-remoteshell</module>
+		<module>server-plugin-provisioner-shell</module>
+		<module>server-plugin-provisioner-docker</module>
 		<module>server-plugin-report-unittest</module>
 		<module>server-plugin-report-junit</module>
 		<module>server-plugin-report-gtest</module>

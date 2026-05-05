@@ -21,13 +21,13 @@ import org.glassfish.jersey.servlet.ServletContainer;
 import io.onedev.commons.bootstrap.Bootstrap;
 import io.onedev.server.OneDev;
 import io.onedev.server.agent.ServerSocketServlet;
+import io.onedev.server.assets.ClasspathAssetServlet;
+import io.onedev.server.assets.FileAssetServlet;
 import io.onedev.server.git.GitFilter;
 import io.onedev.server.git.GitLfsFilter;
 import io.onedev.server.git.GoGetFilter;
 import io.onedev.server.git.hook.GitPostReceiveCallback;
 import io.onedev.server.git.hook.GitPreReceiveCallback;
-import io.onedev.server.jetty.ClasspathAssetServlet;
-import io.onedev.server.jetty.FileAssetServlet;
 import io.onedev.server.jetty.ServletConfigurator;
 import io.onedev.server.security.CorsFilter;
 import io.onedev.server.security.DefaultWebEnvironment;
@@ -59,7 +59,7 @@ public class ProductServletConfigurator implements ServletConfigurator {
 	
 	@Inject
     private GitPostReceiveCallback postReceiveServlet;
-	
+
 	@Inject
 	private WicketServlet wicketServlet;
 
@@ -89,7 +89,7 @@ public class ProductServletConfigurator implements ServletConfigurator {
 		
 		context.addServlet(new ServletHolder(preReceiveServlet), GitPreReceiveCallback.PATH + "/*");
         context.addServlet(new ServletHolder(postReceiveServlet), GitPostReceiveCallback.PATH + "/*");
-        
+
 		/*
 		 * Add wicket servlet as the default servlet which will serve all requests failed to 
 		 * match a path pattern

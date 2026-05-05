@@ -90,15 +90,15 @@ import io.onedev.server.web.page.project.pullrequests.detail.PullRequestDetailPa
 import io.onedev.server.web.page.project.setting.ContributedProjectSetting;
 import io.onedev.server.web.page.project.setting.ProjectSettingContribution;
 import io.onedev.server.web.page.project.setting.ProjectSettingPage;
+import io.onedev.server.web.page.project.setting.ai.ProjectAiSettingPage;
 import io.onedev.server.web.page.project.setting.authorization.GroupAuthorizationsPage;
 import io.onedev.server.web.page.project.setting.authorization.UserAuthorizationsPage;
-import io.onedev.server.web.page.project.setting.ai.ProjectAiSettingPage;
 import io.onedev.server.web.page.project.setting.avatar.AvatarEditPage;
 import io.onedev.server.web.page.project.setting.build.BuildPreservationsPage;
-import io.onedev.server.web.page.project.setting.build.CacheManagementPage;
 import io.onedev.server.web.page.project.setting.build.DefaultFixedIssueFiltersPage;
 import io.onedev.server.web.page.project.setting.build.JobPropertiesPage;
 import io.onedev.server.web.page.project.setting.build.JobSecretsPage;
+import io.onedev.server.web.page.project.setting.cache.CacheManagementPage;
 import io.onedev.server.web.page.project.setting.code.analysis.CodeAnalysisSettingPage;
 import io.onedev.server.web.page.project.setting.code.branchprotection.BranchProtectionsPage;
 import io.onedev.server.web.page.project.setting.code.git.GitPackConfigPage;
@@ -108,11 +108,15 @@ import io.onedev.server.web.page.project.setting.general.GeneralProjectSettingPa
 import io.onedev.server.web.page.project.setting.pluginsettings.ContributedProjectSettingPage;
 import io.onedev.server.web.page.project.setting.servicedesk.ServiceDeskSettingPage;
 import io.onedev.server.web.page.project.setting.webhook.WebHooksPage;
+import io.onedev.server.web.page.project.setting.workspacespec.WorkspaceSpecsPage;
 import io.onedev.server.web.page.project.stats.code.CodeContribsPage;
 import io.onedev.server.web.page.project.stats.code.SourceLinesPage;
 import io.onedev.server.web.page.project.tags.ProjectTagsPage;
+import io.onedev.server.web.page.project.workspaces.ProjectWorkspacesPage;
+import io.onedev.server.web.page.project.workspaces.detail.WorkspaceDetailPage;
 import io.onedev.server.web.page.security.LoginPage;
 import io.onedev.server.web.util.ProjectAware;
+import io.onedev.server.web.util.WicketUtils;
 
 public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 
@@ -252,7 +256,14 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 					ProjectPacksPage.class, ProjectPacksPage.paramsOf(getProject(), 0),
 					Lists.newArrayList(PackDetailPage.class)));
 		}
-		
+
+		if (getProject().isCodeManagement() && SecurityUtils.canWriteCode(getProject()) 
+				&& !getProject().getHierarchyWorkspaceSpecs().isEmpty()) {
+			menuItems.add(new SidebarMenuItem.Page("workspace", _T("Workspaces"),
+					ProjectWorkspacesPage.class, ProjectWorkspacesPage.paramsOf(getProject(), 0),
+					Lists.newArrayList(WorkspaceDetailPage.class)));
+		}
+
 		List<SidebarMenuItem> statsMenuItems = new ArrayList<>();
 		
 		if (getProject().isCodeManagement() && SecurityUtils.canReadCode(getProject())) {
@@ -297,7 +308,10 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 			settingMenuItems.add(new SidebarMenuItem.SubMenu(null, _T("Code"), codeSettingMenuItems));
 			settingMenuItems.add(new SidebarMenuItem.Page(null, _T("Pull Request"),
 					PullRequestSettingPage.class, PullRequestSettingPage.paramsOf(getProject())));
-			
+
+			if (getProject().isIssueManagement() && WicketUtils.isSubscriptionActive()) 
+				settingMenuItems.add(new SidebarMenuItem.SubMenu(null, _T("Issue"), new ArrayList<>()));
+					
 			List<SidebarMenuItem> buildSettingMenuItems = new ArrayList<>();
 			
 			buildSettingMenuItems.add(new SidebarMenuItem.Page(null, _T("Job Secrets"), 
@@ -308,11 +322,14 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 					BuildPreservationsPage.class, BuildPreservationsPage.paramsOf(getProject())));
 			buildSettingMenuItems.add(new SidebarMenuItem.Page(null, _T("Default Fixed Issue Filters"), 
 					DefaultFixedIssueFiltersPage.class, DefaultFixedIssueFiltersPage.paramsOf(getProject())));
-			buildSettingMenuItems.add(new SidebarMenuItem.Page(null, _T("Cache Management"),
-					CacheManagementPage.class, CacheManagementPage.paramsOf(getProject())));
 			
 			settingMenuItems.add(new SidebarMenuItem.SubMenu(null, _T("Build"), buildSettingMenuItems));
-			
+			settingMenuItems.add(new SidebarMenuItem.Page(null, _T("Workspace Specs"),
+					WorkspaceSpecsPage.class, WorkspaceSpecsPage.paramsOf(getProject())));
+
+			settingMenuItems.add(new SidebarMenuItem.Page(null, _T("Cache Management"),
+					CacheManagementPage.class, CacheManagementPage.paramsOf(getProject())));
+
 			if (getSettingService().getServiceDeskSetting() != null && getProject().isIssueManagement()) {
 				settingMenuItems.add(new SidebarMenuItem.Page(null, _T("Service Desk"), 
 						ServiceDeskSettingPage.class, ServiceDeskSettingPage.paramsOf(getProject())));

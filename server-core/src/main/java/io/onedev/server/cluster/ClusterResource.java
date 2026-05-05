@@ -32,22 +32,18 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.StreamingOutput;
 
-import io.onedev.server.annotation.NoDBAccess;
 import org.apache.shiro.authz.UnauthorizedException;
 import org.eclipse.jgit.lib.Repository;
 
-import com.google.common.base.Splitter;
 import com.google.common.collect.Sets;
 
+import io.onedev.commons.bootstrap.Bootstrap;
+import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.TarUtils;
-import io.onedev.server.OneDev;
 import io.onedev.server.StorageService;
+import io.onedev.server.annotation.NoDBAccess;
 import io.onedev.server.attachment.AttachmentService;
-import io.onedev.server.service.BuildService;
-import io.onedev.server.service.JobCacheService;
-import io.onedev.server.service.PackBlobService;
-import io.onedev.server.service.ProjectService;
 import io.onedev.server.git.CommandUtils;
 import io.onedev.server.git.GitFilter;
 import io.onedev.server.git.GitUtils;
@@ -59,6 +55,11 @@ import io.onedev.server.model.PackBlob;
 import io.onedev.server.model.Project;
 import io.onedev.server.rest.annotation.Api;
 import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.service.BuildService;
+import io.onedev.server.service.PackBlobService;
+import io.onedev.server.service.ProjectService;
+import io.onedev.server.service.RunCacheService;
+import io.onedev.server.service.support.CacheFindResult;
 import io.onedev.server.util.IOUtils;
 import io.onedev.server.util.concurrent.WorkExecutionService;
 import io.onedev.server.util.patternset.PatternSet;
@@ -71,88 +72,80 @@ import io.onedev.server.xodus.VisitInfoService;
 @Singleton
 public class ClusterResource {
 
-	private final ProjectService projectService;
-	
-	private final AttachmentService attachmentService;
-	
-	private final CommitInfoService commitInfoService;
-	
-	private final VisitInfoService visitInfoService;
-	
-	private final StorageService storageService;
-	
-	private final PackBlobService packBlobService;
-	
-	private final BuildService buildService;
-	
-	private final JobCacheService jobCacheService;
-	
-	private final WorkExecutionService workExecutionService;
+	@Inject
+	private ProjectService projectService;
 	
 	@Inject
-	public ClusterResource(ProjectService projectService, CommitInfoService commitInfoService,
-						   AttachmentService attachmentService, VisitInfoService visitInfoService,
-						   WorkExecutionService workExecutionService, StorageService storageService,
-						   PackBlobService packBlobService, BuildService buildService,
-						   JobCacheService jobCacheService) {
-		this.commitInfoService = commitInfoService;
-		this.projectService = projectService;
-		this.workExecutionService = workExecutionService;
-		this.attachmentService = attachmentService;
-		this.visitInfoService = visitInfoService;
-		this.storageService = storageService;
-		this.packBlobService = packBlobService;
-		this.buildService = buildService;
-		this.jobCacheService = jobCacheService;
-	}
-
-	@Path("/project-files")
+	private AttachmentService attachmentService;
+	
+	@Inject
+	private CommitInfoService commitInfoService;
+	
+	@Inject
+	private VisitInfoService visitInfoService;
+	
+	@Inject
+	private StorageService storageService;
+	
+	@Inject
+	private PackBlobService packBlobService;
+	
+	@Inject
+	private BuildService buildService;
+	
+	@Inject
+	private RunCacheService cacheService;
+	
+	@Inject
+	private WorkExecutionService workExecutionService;
+	
+	@Path("/site-files")
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	@GET
-	public Response downloadFiles(@QueryParam("projectId") Long projectId,
-								  @QueryParam("path") String path,
+	public Response downloadSiteFiles(@QueryParam("path") String path,
 								  @QueryParam("patterns") String patterns,
 								  @QueryParam("readLock") String readLock) {
 		if (!SecurityUtils.isSystem())
 			throw new UnauthorizedException("This api can only be accessed via cluster credential");
 
-		StreamingOutput output = os -> read(readLock, () -> {
-			File directory = new File(projectService.getProjectDir(projectId), path);
-			PatternSet patternSet = PatternSet.parse(patterns);
-			patternSet.getExcludes().add(SHARE_TEST_DIR + "/**");
-			TarUtils.tar(directory, patternSet.getIncludes(), patternSet.getExcludes(), os, false);
-		});
-		return ok(output).build();
-	}
-
-	@Path("/assets")
-	@Produces(MediaType.APPLICATION_OCTET_STREAM)
-	@GET
-	public Response downloadAssets() {
-		if (!SecurityUtils.isSystem())
-			throw new UnauthorizedException("This api can only be accessed via cluster credential");
-		
-		StreamingOutput output = os -> TarUtils.tar(OneDev.getAssetsDir(), Sets.newHashSet("**"), null, os, false);
+		StreamingOutput output = os -> {
+			Runnable sendFiles = () -> {
+				File directory = new File(Bootstrap.getSiteDir(), path);
+				PatternSet patternSet = PatternSet.parse(patterns);
+				patternSet.getExcludes().add(SHARE_TEST_DIR + "/**");
+				TarUtils.tar(directory, patternSet.getIncludes(), patternSet.getExcludes(), os, false);
+			};
+			if (readLock != null)
+				read(readLock, sendFiles);
+			else
+				sendFiles.run();
+		};
 		return ok(output).build();
 	}
 	
-	@Path("/project-file")
+	@Path("/site-file")
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	@GET
-	public Response downloadProjectFile(@QueryParam("projectId") Long projectId,
-										@QueryParam("path") String path,
-										@QueryParam("readLock") String readLock) {
+	public Response downloadSiteFile(@QueryParam("path") String path, @QueryParam("readLock") String readLock) {
 		if (!SecurityUtils.isSystem())
 			throw new UnauthorizedException("This api can only be accessed via cluster credential");
 
-		File file = new File(projectService.getProjectDir(projectId), path);
-		if (read(readLock, file::exists)) {
-			StreamingOutput os = output -> read(readLock, () -> {
-				try (output; InputStream is = new FileInputStream(file)) {
-					IOUtils.copy(is, output, BUFFER_SIZE);
-				}
-				return null;
-			});
+		File file = new File(Bootstrap.getSiteDir(), path);
+		boolean exists = readLock != null ? read(readLock, file::exists) : file.exists();
+		if (exists) {
+			StreamingOutput os = output -> {
+				Runnable copyFile = () -> {
+					try (output; InputStream is = new FileInputStream(file)) {
+						IOUtils.copy(is, output, BUFFER_SIZE);
+					} catch (IOException e) {
+						throw ExceptionUtils.unchecked(e);
+					}
+				};
+				if (readLock != null) 
+					read(readLock, copyFile);
+				else 
+					copyFile.run();
+			};
 			return ok(os).build();
 		} else {
 			return status(NO_CONTENT).build();
@@ -239,20 +232,21 @@ public class ClusterResource {
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	@GET
 	public Response downloadCache(
-			@QueryParam("projectId") Long projectId, 
-			@QueryParam("cacheId") Long cacheId, 
-			@QueryParam("cachePaths") String joinedCachePaths) {
+			@QueryParam("projectId") Long projectId,
+			@QueryParam("dirName") String dirName,
+			@QueryParam("pathIndex") int pathIndex, 
+			@QueryParam("exactMatch") boolean exactMatch) {
 		if (!SecurityUtils.isSystem())
 			throw new UnauthorizedException("This api can only be accessed via cluster credential");
-		var cachePaths = Splitter.on('\n').splitToList(joinedCachePaths);
-		StreamingOutput out = os -> jobCacheService.downloadCache(projectId, cacheId, cachePaths, os);
+		var cacheFindResult = new CacheFindResult(projectId, dirName, pathIndex, exactMatch);
+		StreamingOutput out = os -> cacheService.downloadCache(cacheFindResult, os);
 		return ok(out).build();
 	}
 
-	@Path("/site")
+	@Path("/project-site")
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	@GET
-	public Response downloadSiteFile(@QueryParam("projectId") Long projectId, @QueryParam("filePath") String filePath) {
+	public Response downloadProjectSiteFile(@QueryParam("projectId") Long projectId, @QueryParam("filePath") String filePath) {
 		if (!SecurityUtils.isSystem()) 
 			throw new UnauthorizedException("This api can only be accessed via cluster credential");
 		
@@ -294,7 +288,7 @@ public class ClusterResource {
 			throw new UnauthorizedException("This api can only be accessed via cluster credential");
 		
 			StreamingOutput os = output -> {
-				Map<String, String> hookEnvs = HookUtils.getHookEnvs(projectId, principal);
+				Map<String, String> hookEnvs = HookUtils.getReceiveHookEnvs(projectId, principal);
 				
 				try {
 					File gitDir = projectService.getGitDir(projectId);
@@ -467,12 +461,13 @@ public class ClusterResource {
 	@POST
 	public Response uploadCache(
 			@QueryParam("projectId") Long projectId,
-			@QueryParam("cacheId") Long cacheId,
-			@QueryParam("cachePaths") String cachePaths,
+			@QueryParam("key") String key,
+			@QueryParam("checksum") String checksum,
+			@QueryParam("path") String path,
 			InputStream cacheStream) {
 		if (!SecurityUtils.isSystem())
 			throw new UnauthorizedException("This api can only be accessed via cluster credential");
-		jobCacheService.uploadCache(projectId, cacheId, Splitter.on('\n').splitToList(cachePaths), cacheStream);
+		cacheService.uploadCache(projectId, key, checksum, path, cacheStream);
 		return ok().build();
 	}
 	

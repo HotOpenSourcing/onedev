@@ -3,11 +3,14 @@ package io.onedev.server.model;
 import static io.onedev.server.model.User.PROP_FULL_NAME;
 import static io.onedev.server.model.User.PROP_NAME;
 import static io.onedev.server.model.User.Type.AI;
-import static io.onedev.server.model.User.Type.SERVICE;
 import static io.onedev.server.security.SecurityUtils.asPrincipals;
 import static io.onedev.server.security.SecurityUtils.asUserPrincipal;
 import static io.onedev.server.security.SecurityUtils.isAdministrator;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -53,6 +56,7 @@ import io.onedev.server.model.support.build.NamedBuildQuery;
 import io.onedev.server.model.support.issue.NamedIssueQuery;
 import io.onedev.server.model.support.pack.NamedPackQuery;
 import io.onedev.server.model.support.pullrequest.NamedPullRequestQuery;
+import io.onedev.server.model.support.workspace.NamedWorkspaceQuery;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.service.EmailAddressService;
 import io.onedev.server.service.SettingService;
@@ -77,11 +81,15 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	
 	public static final Long ROOT_ID = 1L;
 	
+	private static final String SERVICE_ACCOUNT_EMAIL_PREFIX = "sc-";
+
+	private static final String AI_ACCOUNT_EMAIL_PREFIX = "ai-";
+
+	private static final String SERVICE_OR_AI_ACCOUNT_EMAIL_SUFFIX = "@onedev";
+
 	public static final String SYSTEM_NAME = "OneDev";
 	
 	public static final String SYSTEM_EMAIL_ADDRESS = "system@onedev";
-
-	public static final String AI_EMAIL_ADDRESS = "ai@onedev";
 	
 	public static final String UNKNOWN_NAME = "unknown";
 	
@@ -188,7 +196,10 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
 	private Collection<PackQueryPersonalization> packQueryPersonalizations = new ArrayList<>();
-	
+
+	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
+	private Collection<WorkspaceQueryPersonalization> workspaceQueryPersonalizations = new ArrayList<>();
+
     @OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
     private Collection<PullRequestQueryPersonalization> pullRequestQueryPersonalizations = new ArrayList<>();
     
@@ -264,6 +275,10 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 	private Collection<Chat> userChats = new ArrayList<>();
 
+	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
+	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
+	private Collection<Workspace> workspaces = new ArrayList<>();
+
     @JsonIgnore
 	@Lob
 	@Column(nullable=false, length=65535)
@@ -288,7 +303,12 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	@Lob
 	@Column(nullable=false, length=65535)
 	private ArrayList<NamedPackQuery> packQueries = new ArrayList<>();
-	
+
+	@JsonIgnore
+	@Lob
+	@Column(nullable=false, length=65535)
+	private ArrayList<NamedWorkspaceQuery> workspaceQueries = new ArrayList<>();
+
     @JsonIgnore
 	@Lob
 	@Column(nullable=false, length=65535)
@@ -308,7 +328,12 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	@Lob
 	@Column(nullable=false, length=65535)
 	private LinkedHashSet<String> packQuerySubscriptions = new LinkedHashSet<>();
-	
+
+	@JsonIgnore
+	@Lob
+	@Column(nullable=false, length=65535)
+	private LinkedHashSet<String> workspaceQuerySubscriptions = new LinkedHashSet<>();
+
     private transient Collection<Group> groups;
     
     private transient List<EmailAddress> sortedEmailAddresses;
@@ -553,7 +578,55 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 		};
 	}
-	
+
+	public QueryPersonalization<NamedWorkspaceQuery> getWorkspaceQueryPersonalization() {
+		return new QueryPersonalization<>() {
+
+			@Override
+			public Project getProject() {
+				return null;
+			}
+
+			@Override
+			public User getUser() {
+				return User.this;
+			}
+
+			@Override
+			public ArrayList<NamedWorkspaceQuery> getQueries() {
+				return workspaceQueries;
+			}
+
+			@Override
+			public void setQueries(ArrayList<NamedWorkspaceQuery> userQueries) {
+				workspaceQueries = userQueries;
+			}
+
+			@Override
+			public QueryWatchSupport<NamedWorkspaceQuery> getQueryWatchSupport() {
+				return null;
+			}
+
+			@Override
+			public QuerySubscriptionSupport<NamedWorkspaceQuery> getQuerySubscriptionSupport() {
+				return new QuerySubscriptionSupport<>() {
+
+					@Override
+					public LinkedHashSet<String> getQuerySubscriptions() {
+						return workspaceQuerySubscriptions;
+					}
+
+				};
+			}
+
+			@Override
+			public void onUpdated() {
+				OneDev.getInstance(UserService.class).update(User.this, null);
+			}
+
+		};
+	}
+
 	@Override
     public PrincipalCollection getPrincipals() {
 		return asPrincipals(asUserPrincipal(getId()));		
@@ -699,11 +772,11 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	}
 	
 	public PersonIdent asPerson() {
-		if (getType() == SERVICE) {
-			throw new ExplicitException("Service account does not have git identity");
-		} else if (getType() == AI) {
-			return new PersonIdent(getName(), User.AI_EMAIL_ADDRESS);
-		} else if (isUnknown()) {
+		var serviceOrAiAccountEmailAddress = getServiceOrAiAccountEmailAddress();
+		if (serviceOrAiAccountEmailAddress != null) 
+			return new PersonIdent(getName(), serviceOrAiAccountEmailAddress.getValue());
+
+		if (isUnknown()) {
 			throw new ExplicitException("Unknown user does not have git identity");
 		} else if (isSystem()) {
 			return new PersonIdent(User.SYSTEM_NAME, User.SYSTEM_EMAIL_ADDRESS);
@@ -773,6 +846,10 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 	public void setAiEntitlements(Collection<UserEntitlement> aiEntitlements) {
 		this.aiEntitlements = aiEntitlements;
+	}
+
+	public Collection<Workspace> getWorkspaces() {
+		return workspaces;
 	}
 
 	public Collection<IssueAuthorization> getIssueAuthorizations() {
@@ -963,6 +1040,14 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 		this.packQueryPersonalizations = packQueryPersonalizations;
 	}
 
+	public Collection<WorkspaceQueryPersonalization> getWorkspaceQueryPersonalizations() {
+		return workspaceQueryPersonalizations;
+	}
+
+	public void setWorkspaceQueryPersonalizations(Collection<WorkspaceQueryPersonalization> workspaceQueryPersonalizations) {
+		this.workspaceQueryPersonalizations = workspaceQueryPersonalizations;
+	}
+
 	public Collection<PullRequestQueryPersonalization> getPullRequestQueryPersonalizations() {
 		return pullRequestQueryPersonalizations;
 	}
@@ -1111,7 +1196,24 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 		}
 		return null;
 	}
-	
+
+	public ArrayList<NamedWorkspaceQuery> getWorkspaceQueries() {
+		return workspaceQueries;
+	}
+
+	public void setWorkspaceQueries(ArrayList<NamedWorkspaceQuery> workspaceQueries) {
+		this.workspaceQueries = workspaceQueries;
+	}
+
+	@Nullable
+	public NamedWorkspaceQuery getWorkspaceQuery(String name) {
+		for (var query: getWorkspaceQueries()) {
+			if (query.getName().equals(name))
+				return query;
+		}
+		return null;
+	}
+
 	public LinkedHashSet<String> getBuildQuerySubscriptions() {
 		return buildQuerySubscriptions;
 	}
@@ -1126,6 +1228,14 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 	public void setPackQuerySubscriptions(LinkedHashSet<String> packQuerySubscriptions) {
 		this.packQuerySubscriptions = packQuerySubscriptions;
+	}
+
+	public LinkedHashSet<String> getWorkspaceQuerySubscriptions() {
+		return workspaceQuerySubscriptions;
+	}
+
+	public void setWorkspaceQuerySubscriptions(LinkedHashSet<String> workspaceQuerySubscriptions) {
+		this.workspaceQuerySubscriptions = workspaceQuerySubscriptions;
 	}
 
 	public boolean isEnforce2FA() {
@@ -1146,7 +1256,11 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	}
 	
 	@Nullable
-	public EmailAddress getPrimaryEmailAddress() {
+	public EmailAddress getPrimaryEmailAddress() {		
+		var serviceOrAiAccountEmailAddress = getServiceOrAiAccountEmailAddress();
+		if (serviceOrAiAccountEmailAddress != null)
+			return serviceOrAiAccountEmailAddress;
+
 		if (primaryEmailAddress == null)
 			primaryEmailAddress = Optional.ofNullable(getEmailAddressService().findPrimary(this));
 		return primaryEmailAddress.orElse(null);
@@ -1154,6 +1268,10 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 	@Nullable
 	public EmailAddress getGitEmailAddress() {
+		var serviceOrAiAccountEmailAddress = getServiceOrAiAccountEmailAddress();
+		if (serviceOrAiAccountEmailAddress != null)
+			return serviceOrAiAccountEmailAddress;
+
 		if (gitEmailAddress == null)
 			gitEmailAddress = Optional.ofNullable(getEmailAddressService().findGit(this));
 		return gitEmailAddress.orElse(null);
@@ -1161,9 +1279,30 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 	@Nullable
 	public EmailAddress getPublicEmailAddress() {
+		var serviceOrAiAccountEmailAddress = getServiceOrAiAccountEmailAddress();
+		if (serviceOrAiAccountEmailAddress != null)
+			return serviceOrAiAccountEmailAddress;
+
 		if (publicEmailAddress == null)
 			publicEmailAddress = Optional.ofNullable(getEmailAddressService().findPublic(this));
 		return publicEmailAddress.orElse(null);
+	}
+
+	@Nullable
+	public EmailAddress getServiceOrAiAccountEmailAddress() {
+		if (getType() == Type.SERVICE || getType() == Type.AI) {
+			var emailAddress = new EmailAddress();
+			var emailPrefix = getType() == Type.SERVICE ? SERVICE_ACCOUNT_EMAIL_PREFIX : AI_ACCOUNT_EMAIL_PREFIX;
+			emailAddress.setValue(emailPrefix + getId() + SERVICE_OR_AI_ACCOUNT_EMAIL_SUFFIX);
+			emailAddress.setOwner(this);
+			emailAddress.setPrimary(true);
+			emailAddress.setGit(true);
+			emailAddress.setOpen(true);
+			emailAddress.setVerificationCode(null);
+			return emailAddress;
+		} else {
+			return null;
+		}
 	}
 
 	public void addEmailAddress(EmailAddress emailAddress) {
@@ -1207,6 +1346,41 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 			}
 		}
 		return entitledAis;
+	}
+
+	@Nullable
+	public static Long getServiceOrAiAccountId(String value) {
+		if (value.endsWith(SERVICE_OR_AI_ACCOUNT_EMAIL_SUFFIX)) {
+			value = value.substring(0, value.length() - SERVICE_OR_AI_ACCOUNT_EMAIL_SUFFIX.length());
+			if (value.startsWith(SERVICE_ACCOUNT_EMAIL_PREFIX)) {
+				var serviceAccountId = value.substring(SERVICE_ACCOUNT_EMAIL_PREFIX.length());
+				return Long.parseLong(serviceAccountId);
+			} else if (value.startsWith(AI_ACCOUNT_EMAIL_PREFIX)) {
+				var aiAccountId = value.substring(AI_ACCOUNT_EMAIL_PREFIX.length());
+				return Long.parseLong(aiAccountId);
+			}
+		}
+		return null;
+	}
+
+	public static String encodeWorkspaceDataKey(String dataKey) {
+		try {
+			return URLEncoder.encode(dataKey, StandardCharsets.UTF_8.name());
+		} catch (UnsupportedEncodingException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	public static String decodeWorkspaceDataKey(String encodedDataKey) {
+		try {
+			return URLDecoder.decode(encodedDataKey, StandardCharsets.UTF_8.name());
+		} catch (UnsupportedEncodingException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	public static String getWorkspaceDataLockName(Long userId, String dataKey) {
+		return "workspace-data:" + userId + ":" + dataKey;
 	}
 
 	public boolean isEntitledToAi(User ai) {

@@ -33,6 +33,10 @@ public @interface Code {
 	
 	String GROOVY_TEMPLATE = "Java Server Pages";
 	
+	String JSON = "JSON";
+	
+	String PLAIN_TEXT = "Plain Text";
+	
 	String language();
 	
 	String variableProvider() default "";

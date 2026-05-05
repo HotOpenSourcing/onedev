@@ -109,6 +109,7 @@ import io.onedev.server.web.page.admin.emailtemplates.CommitNotificationTemplate
 import io.onedev.server.web.page.admin.emailtemplates.EmailVerificationTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.IssueNotificationTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.IssueNotificationUnsubscribedTemplatePage;
+import io.onedev.server.web.page.admin.emailtemplates.WorkspaceNotificationTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.PackNotificationTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.PasswordResetTemplatePage;
 import io.onedev.server.web.page.admin.emailtemplates.PullRequestNotificationTemplatePage;
@@ -151,6 +152,7 @@ import io.onedev.server.web.page.admin.usermanagement.InvitationListPage;
 import io.onedev.server.web.page.admin.usermanagement.NewInvitationPage;
 import io.onedev.server.web.page.admin.usermanagement.NewUserPage;
 import io.onedev.server.web.page.admin.usermanagement.UserListPage;
+import io.onedev.server.web.page.admin.workspaceprovisioner.WorkspaceProvisionersPage;
 import io.onedev.server.web.page.base.BasePage;
 import io.onedev.server.web.page.help.IncompatibilitiesPage;
 import io.onedev.server.web.page.my.MyPage;
@@ -168,6 +170,7 @@ import io.onedev.server.web.page.my.querywatch.MyQueryWatchesPage;
 import io.onedev.server.web.page.my.sshkeys.MySshKeysPage;
 import io.onedev.server.web.page.my.ssoaccounts.MySsoAccountsPage;
 import io.onedev.server.web.page.my.twofactorauthentication.MyTwoFactorAuthenticationPage;
+import io.onedev.server.web.page.my.workspacedata.MyWorkspaceDataPage;
 import io.onedev.server.web.page.security.LoginPage;
 import io.onedev.server.web.page.security.LogoutPage;
 import io.onedev.server.web.page.user.UserPage;
@@ -286,8 +289,10 @@ public abstract class LayoutPage extends BasePage {
 
 					administrationMenuItems.add(new SidebarMenuItem.SubMenu(null, _T("Issue Settings"), issueSettingMenuItems));
 
-					administrationMenuItems.add(new SidebarMenuItem.Page(null, _T("Job Executors"),
-							JobExecutorsPage.class, new PageParameters()));
+				administrationMenuItems.add(new SidebarMenuItem.Page(null, _T("Job Executors"),
+						JobExecutorsPage.class, new PageParameters()));
+				administrationMenuItems.add(new SidebarMenuItem.Page(null, _T("Workspace Provisioners"),
+						WorkspaceProvisionersPage.class, new PageParameters()));
 					administrationMenuItems.add(new SidebarMenuItem.Page(null, _T("Agents"),
 							AgentListPage.class, AgentListPage.paramsOf(0), Lists.newArrayList(AgentDetailPage.class)));
 
@@ -319,7 +324,10 @@ public abstract class LayoutPage extends BasePage {
 							BuildNotificationTemplatePage.class, new PageParameters()));
 
  					emailTemplatesMenuItems.add(new SidebarMenuItem.Page(null, _T("Package Notification"),
-							PackNotificationTemplatePage.class, new PageParameters()));
+						PackNotificationTemplatePage.class, new PageParameters()));
+
+					emailTemplatesMenuItems.add(new SidebarMenuItem.Page(null, _T("Workspace Notification"),
+							WorkspaceNotificationTemplatePage.class, new PageParameters()));
 
 					emailTemplatesMenuItems.add(new SidebarMenuItem.Page(null, _T("Commit Notification"),
 							CommitNotificationTemplatePage.class, new PageParameters()));
@@ -1201,6 +1209,14 @@ public abstract class LayoutPage extends BasePage {
 				item.add(AttributeAppender.append("class", "active"));
 		} else {
 			userInfo.add(new WebMarkupContainer("myQueryWatches").setVisible(false));
+		}
+
+		if (loginUser != null && !loginUser.isDisabled()) {
+			userInfo.add(item = new ViewStateAwarePageLink<Void>("myWorkspaceData", MyWorkspaceDataPage.class));
+			if (getPage() instanceof MyWorkspaceDataPage)
+				item.add(AttributeAppender.append("class", "active"));
+		} else {
+			userInfo.add(new WebMarkupContainer("myWorkspaceData").setVisible(false));
 		}
 
 		if (!SecurityUtils.isAnonymous(SecurityUtils.getPrevPrincipal())) {

@@ -2,7 +2,6 @@ package io.onedev.server.service.impl;
 
 import static io.onedev.commons.utils.FileUtils.cleanDir;
 import static io.onedev.commons.utils.LockUtils.read;
-import static io.onedev.k8shelper.KubernetesHelper.BEARER;
 import static io.onedev.server.git.CommandUtils.callWithClusterCredential;
 import static io.onedev.server.git.GitUtils.getDefaultBranch;
 import static io.onedev.server.git.GitUtils.getReachableCommits;
@@ -17,27 +16,18 @@ import static io.onedev.server.replica.ProjectReplica.Type.BACKUP;
 import static io.onedev.server.replica.ProjectReplica.Type.PRIMARY;
 import static io.onedev.server.replica.ProjectReplica.Type.REDUNDANT;
 import static io.onedev.server.search.entity.EntitySort.Direction.ASCENDING;
-import static io.onedev.server.util.DirectoryVersionUtils.FILE_VERSION;
-import static io.onedev.server.util.DirectoryVersionUtils.increaseVersion;
-import static io.onedev.server.util.DirectoryVersionUtils.isVersionFile;
-import static io.onedev.server.util.DirectoryVersionUtils.readVersion;
-import static io.onedev.server.util.DirectoryVersionUtils.writeVersion;
-import static io.onedev.server.util.IOUtils.BUFFER_SIZE;
+import static io.onedev.server.util.SiteSyncUtils.readVersion;
+import static io.onedev.server.util.SiteSyncUtils.writeVersion;
 import static io.onedev.server.util.criteria.Criteria.forManyValues;
 import static io.onedev.server.web.translation.Translation._T;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Comparator.naturalOrder;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
-import static javax.ws.rs.core.HttpHeaders.AUTHORIZATION;
-import static javax.ws.rs.core.Response.Status.NO_CONTENT;
 import static org.eclipse.jgit.lib.Constants.R_HEADS;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.ObjectStreamException;
 import java.io.Serializable;
 import java.nio.file.Files;
@@ -58,7 +48,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 
-import org.jspecify.annotations.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.persistence.criteria.CriteriaBuilder;
@@ -68,12 +57,7 @@ import javax.persistence.criteria.Order;
 import javax.persistence.criteria.Path;
 import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.client.Invocation;
-import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
 
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.shiro.authz.UnauthorizedException;
@@ -91,6 +75,7 @@ import org.hibernate.Session;
 import org.hibernate.criterion.Restrictions;
 import org.hibernate.query.Query;
 import org.hibernate.query.criteria.internal.path.SingularAttributePath;
+import org.jspecify.annotations.Nullable;
 import org.quartz.CronScheduleBuilder;
 import org.quartz.ScheduleBuilder;
 import org.slf4j.Logger;
@@ -108,10 +93,8 @@ import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.LockUtils;
-import io.onedev.commons.utils.TarUtils;
 import io.onedev.commons.utils.command.Commandline;
 import io.onedev.commons.utils.command.LineConsumer;
-import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.StorageService;
 import io.onedev.server.attachment.AttachmentService;
 import io.onedev.server.cluster.ClusterService;
@@ -119,7 +102,9 @@ import io.onedev.server.cluster.ClusterTask;
 import io.onedev.server.data.migration.VersionedXmlDoc;
 import io.onedev.server.event.Listen;
 import io.onedev.server.event.ListenerRegistry;
-import io.onedev.server.event.cluster.ConnectionEvent;
+import io.onedev.server.event.cluster.NodeConnected;
+import io.onedev.server.event.cluster.NodeDisconnected;
+import io.onedev.server.event.cluster.NodeEvent;
 import io.onedev.server.event.entity.EntityPersisted;
 import io.onedev.server.event.entity.EntityRemoved;
 import io.onedev.server.event.project.ActiveServerChanged;
@@ -143,8 +128,6 @@ import io.onedev.server.model.Build;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Iteration;
 import io.onedev.server.model.LinkSpec;
-import io.onedev.server.model.Pack;
-import io.onedev.server.model.PackBlob;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.ProjectLastActivityDate;
 import io.onedev.server.model.PullRequest;
@@ -182,8 +165,8 @@ import io.onedev.server.service.UserAuthorizationService;
 import io.onedev.server.service.UserService;
 import io.onedev.server.taskschedule.SchedulableTask;
 import io.onedev.server.taskschedule.TaskScheduler;
-import io.onedev.server.util.IOUtils;
 import io.onedev.server.util.ProjectNameReservation;
+import io.onedev.server.util.SiteSyncUtils;
 import io.onedev.server.util.artifact.ArtifactInfo;
 import io.onedev.server.util.artifact.DirectoryInfo;
 import io.onedev.server.util.artifact.FileInfo;
@@ -196,6 +179,7 @@ import io.onedev.server.util.facade.ProjectFacade;
 import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.util.usage.Usage;
 import io.onedev.server.web.avatar.AvatarService;
+import io.onedev.server.workspace.WorkspaceService;
 import io.onedev.server.xodus.CommitInfoService;
 import io.onedev.server.xodus.VisitInfoService;
 
@@ -281,6 +265,9 @@ public class DefaultProjectService extends BaseEntityService<Project>
 
 	@Inject
 	private PackBlobService packBlobService;
+
+	@Inject
+	private WorkspaceService workspaceService;
 
 	@Inject
 	private ProjectLabelService labelService;
@@ -424,7 +411,11 @@ public class DefaultProjectService extends BaseEntityService<Project>
 				if (replicasOfProject != null) {
 					for (var server: replicasOfProject.keySet()) {
 						clusterService.submitToServer(server, () -> {
-							markStorageForDelete(projectId);
+							try {
+								markStorageForDelete(projectId);
+							} catch (Throwable e) {
+								logger.error("Error marking project storage for delete", e);
+							}
 							return null;
 						});
 					}
@@ -496,13 +487,16 @@ public class DefaultProjectService extends BaseEntityService<Project>
 		query.setParameter("sourceProject", project);
 		query.executeUpdate();
 
-		for (Build build : project.getBuilds())
+		for (var workspace: project.getWorkspaces())
+			workspaceService.delete(workspace);
+
+		for (var build : project.getBuilds())
 			buildService.delete(build);
 
-		for (Pack pack : project.getPacks())
+		for (var pack : project.getPacks())
 			packService.delete(pack);
 
-		for (PackBlob packBlob : project.getPackBlobs())
+		for (var packBlob : project.getPackBlobs())
 			packBlobService.delete(packBlob);
 
 		dao.remove(project);
@@ -631,6 +625,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 			} else {
 				var remoteUrl = clusterService.getServerUrl(fromActiveServer) + "/" + fromPath;
 				callWithClusterCredential(git -> {
+					git.clearArgs();
 					new CloneCommand(toGitDir, remoteUrl) {
 
 						@Override
@@ -646,6 +641,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 
 				if (withLfs) {
 					callWithClusterCredential(git -> {
+						git.clearArgs();
 						new LfsFetchAllCommand(toGitDir, remoteUrl) {
 
 							@Override
@@ -659,7 +655,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 				}
 			}
 
-			HookUtils.checkHooks(toGitDir);
+			HookUtils.checkReceiveHooks(toGitDir);
 			checkGitConfig(toId, gitPackConfig);
 			commitInfoService.cloneInfo(fromId, toId);
 			avatarService.copyProjectAvatar(fromId, toId);
@@ -679,7 +675,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 			new CloneCommand(gitDir, repositoryUrl).mirror(true).noLfs(true).run();
 			storageService.initLfsDir(projectId);
 			new LfsFetchAllCommand(gitDir, repositoryUrl).run();
-			HookUtils.checkHooks(gitDir);
+			HookUtils.checkReceiveHooks(gitDir);
 			checkGitConfig(projectId, project.getGitPackConfig());
 			return null;
 		});
@@ -703,8 +699,8 @@ public class DefaultProjectService extends BaseEntityService<Project>
 							}
 						}
 					});
-				} catch (Exception e) {
-					logger.error("Error posting ref updated event", e);
+				} catch (Throwable t) {
+					logger.error("Error posting ref updated event", t);
 				}					
 				return null;				
 			});
@@ -826,7 +822,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 			if (project != null) {
 				logger.debug("Checking project (path: {})...", project.getPath());
 				checkGitDir(projectId);
-				HookUtils.checkHooks(getGitDir(projectId));
+				HookUtils.checkReceiveHooks(getGitDir(projectId));
 				checkGitConfig(projectId, project.getGitPackConfig());
 				
 				LinkedHashMap<String, ProjectReplica> newReplicasOfProject;
@@ -859,8 +855,8 @@ public class DefaultProjectService extends BaseEntityService<Project>
 	}
 
 	@Listen
-	public void on(ConnectionEvent event) {
-		if (clusterService.isLeaderServer()) {
+	public void on(NodeEvent event) {
+		if (clusterService.isLeaderServer() && (event instanceof NodeConnected nodeConnected && nodeConnected.isRecovered() || event instanceof NodeDisconnected nodeDisconnected && nodeDisconnected.isAbnormal())) {
 			logger.info("Updating active servers upon cluster member change...");
 			updateActiveServers();
 		}
@@ -1385,7 +1381,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 	private void initGit(Long projectId, GitPackConfig gitPackConfig) {
 		checkGitDir(projectId);
 		var gitDir = getGitDir(projectId);
-		HookUtils.checkHooks(gitDir);
+		HookUtils.checkReceiveHooks(gitDir);
 		checkGitConfig(projectId, gitPackConfig);
 	}
 	
@@ -1405,14 +1401,8 @@ public class DefaultProjectService extends BaseEntityService<Project>
 	
 	@Override
 	public void directoryModified(Long projectId, File directory) {
-		var projectDir = getProjectDir(projectId);
-		var projectPath = projectDir.toPath();	
-		var currentPath = directory.toPath();
-		while (currentPath.startsWith(projectPath)) {
-			var currentDir = currentPath.toFile();
-			increaseVersion(currentDir);
-			currentPath = currentPath.getParent();
-		}
+		SiteSyncUtils.bumpVersions(getProjectDir(projectId), directory);
+		
 		updateReplicaVersion(projectId);
 		
 		var replicasOfProject = replicas.get(projectId);
@@ -1539,7 +1529,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 				clusterService.submitToServer(server, () -> {
 					try {
 						requestToSyncReplica(projectId, syncWithServer);
-					} catch (Exception e) {
+					} catch (Throwable e) {
 						logger.error("Error requesting replica sync of project with id '" + projectId + "'", e);
 					}
 					return null;
@@ -1589,108 +1579,22 @@ public class DefaultProjectService extends BaseEntityService<Project>
 	@Override
 	public void syncDirectory(Long projectId, String path, Consumer<String> childSyncer, String activeServer) {
 		var directory = new File(getProjectDir(projectId), path);
-		
-		long remoteVersion = clusterService.runOnServer(activeServer, () -> readVersion(new File(getProjectDir(projectId), path)));
-		long version = readVersion(directory);
-		
-		if (version < remoteVersion) {
-			Collection<String> remoteChildren = clusterService.runOnServer(activeServer, () -> {
-				var children = new HashSet<String>();
-				for (var file: new File(getProjectDir(projectId), path).listFiles()) {
-					if (!isVersionFile(file))
-						children.add(file.getName());
-				}
-				return children;
-			});								
-			
-			FileUtils.createDir(directory);
-			for (var file: directory.listFiles()) {
-				if (!isVersionFile(file)) {
-					if (remoteChildren.remove(file.getName()))
-						childSyncer.accept(file.getName());
-					else if (file.isFile())
-						FileUtils.deleteFile(file);
-					else
-						FileUtils.deleteDir(file);
-				}
-			}
-			for (var child: remoteChildren)
-				childSyncer.accept(child);
-			
-			writeVersion(directory, remoteVersion);
-		}
+		var sitePath = Bootstrap.getSiteDir().toPath().relativize(directory.toPath()).toString();
+		SiteSyncUtils.syncDirectory(activeServer, sitePath, childSyncer, true);
 	}
 
 	@Override
 	public void syncDirectory(Long projectId, String path, String readLock, String activeServer) {
 		var directory = new File(getProjectDir(projectId), path);
-		long version = readVersion(directory);
-
-		long remoteVersion = clusterService.runOnServer(activeServer, () -> {
-			return readVersion(new File(getProjectDir(projectId), path));
-		});
-
-		if (version < remoteVersion) {
-			FileUtils.cleanDir(directory);
-			Client client = ClientBuilder.newClient();
-			try {
-				String fromServerUrl = clusterService.getServerUrl(activeServer);
-				WebTarget target = client.target(fromServerUrl).path("/~api/cluster/project-files")
-						.queryParam("projectId", projectId)
-						.queryParam("path", path)
-						.queryParam("patterns", "** -" + FILE_VERSION)
-						.queryParam("readLock", readLock);
-				Invocation.Builder builder = target.request();
-				builder.header(AUTHORIZATION,
-						BEARER + " " + clusterService.getCredential());
-
-				try (Response response = builder.get()) {
-					KubernetesHelper.checkStatus(response);
-					try (InputStream is = response.readEntity(InputStream.class)) {
-						TarUtils.untar(is, directory, false);
-					} catch (IOException e) {
-						throw new RuntimeException(e);
-					}
-				}
-			} finally {
-				client.close();
-			}
-			writeVersion(directory, remoteVersion);
-		}
+		var sitePath = Bootstrap.getSiteDir().toPath().relativize(directory.toPath()).toString();
+		SiteSyncUtils.syncDirectory(activeServer, sitePath, true, readLock, null);
 	}
 
 	@Override
 	public void syncFile(Long projectId, String path, String readLock, String activeServer) {
 		var file = new File(getProjectDir(projectId), path);
-		Client client = ClientBuilder.newClient();
-		try {
-			String fromServerUrl = clusterService.getServerUrl(activeServer);
-			WebTarget target = client.target(fromServerUrl).path("/~api/cluster/project-file")
-					.queryParam("projectId", projectId)
-					.queryParam("path", path)
-					.queryParam("readLock", readLock);
-			Invocation.Builder builder = target.request();
-			builder.header(AUTHORIZATION,
-					BEARER + " " + clusterService.getCredential());
-			try (Response response = builder.get()) {
-				if (response.getStatus() == NO_CONTENT.getStatusCode()) {
-					if (file.exists())
-						FileUtils.deleteFile(file);
-				} else {
-					FileUtils.createDir(file.getParentFile());
-					KubernetesHelper.checkStatus(response);
-					try (
-							var is = response.readEntity(InputStream.class);
-							var os = new BufferedOutputStream(new FileOutputStream(file), BUFFER_SIZE)) {
-						IOUtils.copy(is, os, BUFFER_SIZE);
-					} catch (IOException e) {
-						throw new RuntimeException(e);
-					}
-				}
-			}
-		} finally {
-			client.close();
-		}
+		var sitePath = Bootstrap.getSiteDir().toPath().relativize(file.toPath()).toString();
+		SiteSyncUtils.syncFile(activeServer, sitePath, true, readLock, null);
 	}
 	
 	private BatchWorker getSyncWorker(Long projectId) {
@@ -1742,7 +1646,7 @@ public class DefaultProjectService extends BaseEntityService<Project>
 						CommandUtils.callWithClusterCredential(new GitTask<>() {
 
 							private void fetch(Commandline git, String fetchUrl) {
-								git.addArgs("fetch", "--force", fetchUrl, "refs/*:refs/*", "-pP");
+								git.args("fetch", "--force", fetchUrl, "refs/*:refs/*", "-pP");
 								git.execute(new LineConsumer() {
 									@Override
 									public void consume(String line) {
@@ -1764,39 +1668,39 @@ public class DefaultProjectService extends BaseEntityService<Project>
 								git.workingDir(repository.getDirectory());
 								var fetchUrl = clusterService.getServerUrl(activeServer) + "/" + cache.get(projectId).getPath();
 								fetch(git, fetchUrl);
-								git.clearArgs();
 
 								if (withLfs) {
 									var lfsDir = storageService.initLfsDir(projectId);
-									if (isSharedDir(lfsDir, activeServer, projectId, "git/lfs")) {
-										fetch(git, fetchUrl);
-									} else {
+									if (!isSharedDir(lfsDir, activeServer, projectId, "git/lfs")) {
 										var sinceCommitIds = readLfsSinceCommits(projectId);
 										var untilCommitIds = new HashSet<ObjectId>();
 										for (Ref ref: repository.getRefDatabase().getRefs())
 											untilCommitIds.add(ref.getObjectId());
 
+										git.clearArgs();
 										if (sinceCommitIds.isEmpty()) {
 											new LfsFetchAllCommand(git.workingDir(), fetchUrl) {
+												
 												@Override
 												protected Commandline newGit() {
 													return git;
 												}
+
 											}.run();
 										} else {
 											var fetchCommitIds = getReachableCommits(repository, sinceCommitIds, untilCommitIds)
 													.stream().map(AnyObjectId::copy).collect(toList());
 											new LfsFetchCommand(git.workingDir(), fetchUrl, fetchCommitIds) {
+
 												@Override
 												protected Commandline newGit() {
 													return git;
 												}
+
 											}.run();
 										}
 										writeLfsSinceCommits(projectId, untilCommitIds);
 									}
-								} else {
-									fetch(git, fetchUrl);
 								}
 								return null;
 							}
@@ -1907,7 +1811,11 @@ public class DefaultProjectService extends BaseEntityService<Project>
 									if (!newReplicasOfProject.equals(replicasOfProject)) {
 										if (replicas.replace(projectId, replicasOfProject, newReplicasOfProject)) {
 											redundantServers.forEach(it -> clusterService.submitToServer(it, () -> {
-												markStorageForDelete(projectId);
+												try {
+													markStorageForDelete(projectId);
+												} catch (Throwable e) {
+													logger.error("Error marking project storage directory for deletion", e);
+												}
 												return null;
 											}));									
 											break;
